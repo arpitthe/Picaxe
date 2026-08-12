@@ -1,0 +1,129 @@
+{
+  "model": "buffalo_l",
+  "detector": "SCRFD (det_10g.onnx)",
+  "recognition_model": "ArcFace (w600k_r50.onnx - ResNet50)",
+  "embedding_dimension": 512,
+  "num_positive_pairs": 100,
+  "num_negative_pairs": 100,
+  "metrics": {
+    "positive_mean": 0.9762,
+    "positive_min": 0.9695,
+    "positive_max": 0.9799,
+    "negative_mean": 0.0073,
+    "negative_min": -0.097,
+    "negative_max": 0.0958
+  },
+  "recommended_threshold": 0.3,
+  "threshold_evaluation": [
+    {
+      "threshold": 0.3,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.35,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.4,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.45,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.5,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.55,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.6,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.65,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.7,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.75,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    },
+    {
+      "threshold": 0.8,
+      "tp": 100,
+      "fp": 0,
+      "tn": 100,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0
+    }
+  ]
+}

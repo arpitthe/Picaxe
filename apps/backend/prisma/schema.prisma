@@ -1,0 +1,496 @@
+// ============================================================
+// Picaxe — Production Database Schema v2
+// Architect review: UserCredential split, RefreshToken,
+// pipeline metadata, Event audit fields.
+// Last updated: 2026-08-02
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+// User roles. ORGANIZATION replaces the old abbreviated ORG.
+// SUPER_ADMIN reserved for future internal tooling / multi-tenant management.
+enum Role {
+  STUDENT
+  ORGANIZATION
+  ADMIN
+  SUPER_ADMIN
+}
+
+// Auth credential providers.
+// EMAIL = password-based. Others = OAuth / SSO.
+// SAML reserved for future enterprise university SSO.
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  MICROSOFT
+  SAML
+}
+
+// Coarse-grained onboarding state for a StudentProfile.
+// FACE_UPLOADED: photo received but not yet validated.
+// VERIFIED: embedding generated, stored in Qdrant — profile is active.
+// REJECTED: face image failed quality checks; must re-submit.
+enum RegistrationStatus {
+  PENDING
+  FACE_UPLOADED
+  VERIFIED
+  REJECTED
+}
+
+// Lifecycle of an event from creation to archival.
+enum EventStatus {
+  DRAFT       // created but not yet published
+  ACTIVE      // accepting uploads; visible to org
+  PROCESSING  // AI pipeline is running
+  COMPLETED   // all media processed and distributed
+  ARCHIVED    // hidden from default views; data retained
+}
+
+// Controls who can discover and view an event.
+enum EventVisibility {
+  PUBLIC   // discoverable by any registered student
+  PRIVATE  // only accessible via direct invite / org share
+  UNLISTED // accessible by link but not discoverable
+}
+
+// Upload lifecycle of an individual media file.
+enum UploadStatus {
+  PENDING    // record created, upload not started
+  UPLOADING  // multipart upload in progress
+  COMPLETED  // file fully written to object storage
+  FAILED     // upload failed; safe to retry
+}
+
+// AI processing pipeline lifecycle.
+enum ProcessingStatus {
+  QUEUED      // waiting for a worker
+  PROCESSING  // worker is actively processing it
+  COMPLETED   // AI ran successfully, tags written
+  FAILED      // pipeline error; see MediaAsset.processingError
+  SKIPPED     // duplicate or corrupted file
+}
+
+// Kind of media file.
+enum MediaType {
+  PHOTO
+  CERTIFICATE
+}
+
+// How a student tag was created.
+enum MatchType {
+  AUTO    // fully AI-generated
+  MANUAL  // assigned by an org admin or admin
+  CLAIMED // student self-identified
+}
+
+// Review state of a tag (PhotoTag or CertificateTag).
+// PENDING: auto-matched, awaiting optional human confirmation.
+// CONFIRMED: verified by an org admin or admin.
+// REJECTED: incorrect match, suppressed from student view.
+enum TagStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+// Lifecycle status of an organization account.
+enum OrganizationStatus {
+  PENDING_VERIFICATION  // registered but not yet approved
+  ACTIVE                // verified and fully operational
+  SUSPENDED             // temporarily blocked
+  DEACTIVATED           // permanently closed
+}
+
+// ============================================================
+// USER — Core identity record
+// ============================================================
+// Intentionally lean. Authentication credentials are separated
+// into UserCredential to support multiple login methods without
+// modifying this table (email/password, Google, SAML, magic link).
+//
+// Future: OrganizationMember table for multi-user organizations
+// will reference this model, allowing OWNER / ADMIN / STAFF / REVIEWER roles.
+model User {
+  id          String    @id @default(uuid())
+  displayName String
+  role        Role      @default(STUDENT)
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // soft delete — GDPR erasure
+
+  // Relations
+  credentials     UserCredential[]
+  refreshTokens   RefreshToken[]
+  studentProfile  StudentProfile?
+  ownedOrgs       Organization[]   @relation("OrgOwner")
+  createdEvents   Event[]          @relation("EventCreator")
+  updatedEvents   Event[]          @relation("EventUpdater")
+  uploadedAssets  MediaAsset[]     @relation("AssetUploader")
+  auditActorLogs  AuditLog[]       @relation("AuditActor")
+  reviewedPhotoTags    PhotoTag[]        @relation("PhotoTagReviewer")
+  reviewedCertTags     CertificateTag[]  @relation("CertTagReviewer")
+
+  @@index([role])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+// ============================================================
+// USER CREDENTIAL — Authentication credentials
+// ============================================================
+// Separated from User so multiple login providers can be attached
+// to one identity without schema changes.
+//
+// EMAIL provider: email + passwordHash populated, providerId = email.
+// OAuth providers: email populated, passwordHash null, providerId = provider's user ID.
+// providerId is the external identifier from the OAuth provider (Google sub, MS oid, etc.)
+// A user can have credentials from multiple providers (e.g. email + Google).
+// emailVerifiedAt: null = unverified. OAuth providers are considered pre-verified.
+model UserCredential {
+  id              String       @id @default(uuid())
+  userId          String
+  provider        AuthProvider
+  providerId      String       // unique ID from the provider; email for EMAIL provider
+  email           String
+  passwordHash    String?      // null for OAuth providers
+  emailVerifiedAt DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One provider entry per user (no duplicate Google logins)
+  @@unique([userId, provider])
+  // Provider IDs must be globally unique per provider
+  @@unique([provider, providerId])
+  @@index([userId])
+  @@index([email])
+  @@map("user_credentials")
+}
+
+// ============================================================
+// REFRESH TOKEN — Secure session persistence
+// ============================================================
+// Refresh tokens are never stored in plaintext — only the bcrypt hash.
+// revokedAt: set when a token is explicitly invalidated (logout, security event).
+// A user can have many active refresh tokens (multiple devices).
+// Expired and revoked tokens are cleaned up by a scheduled job.
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique // bcrypt hash of the raw token
+  expiresAt   DateTime
+  revokedAt   DateTime? // null = still valid
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("refresh_tokens")
+}
+
+// ============================================================
+// STUDENT PROFILE — Extended identity for students
+// ============================================================
+// One-to-one with User. Contains student-specific fields and links
+// to face embedding metadata. The actual vector lives in Qdrant.
+// Soft delete: when a student requests data erasure, the profile is
+// soft-deleted, FaceEmbedding is hard-deleted, and Qdrant point is
+// removed (handled at the application layer).
+model StudentProfile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  fullName           String             // canonical name used for NER certificate matching
+  institution        String?
+  studentCode        String?            // optional student ID / employee ID
+  avatarUrl          String?            // future: profile picture (separate from registration photo)
+  phoneNumber        String?            // future: SMS notifications
+  registrationStatus RegistrationStatus @default(PENDING)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  deletedAt          DateTime?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  faceEmbedding   FaceEmbedding?
+  photoTags       PhotoTag[]
+  certificateTags CertificateTag[]
+
+  @@index([userId])
+  @@index([institution])
+  @@index([registrationStatus])
+  @@index([deletedAt])
+  @@map("student_profiles")
+}
+
+// ============================================================
+// FACE EMBEDDING — Qdrant metadata mirror
+// ============================================================
+// Does NOT store the vector. The 512-dim float array lives in Qdrant,
+// keyed by qdrantPointId. This record connects the student to their
+// Qdrant entry.
+// isActive: allows rolling model upgrades — old embedding preserved for
+// audit while the new one is flagged active. Only one active embedding
+// per student enforced by @@unique([studentProfileId]) + application logic.
+model FaceEmbedding {
+  id               String   @id @default(uuid())
+  studentProfileId String   @unique
+  qdrantPointId    String   @unique            // Qdrant collection point ID
+  modelVersion     String                      // e.g. "insightface-buffalo_l-v1.3"
+  dimensions       Int      @default(512)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  studentProfile StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+
+  @@index([studentProfileId])
+  @@index([qdrantPointId])
+  @@index([isActive])
+  @@map("face_embeddings")
+}
+
+// ============================================================
+// ORGANIZATION — Event publishing entity
+// ============================================================
+// Owned by one User. Multi-user organization management (staff roles)
+// will be implemented via a future OrganizationMember join table:
+//
+//   OrganizationMember { organizationId, userId, role: OWNER|ADMIN|STAFF|REVIEWER }
+//
+// slug: URL-friendly routing identifier (e.g. /orgs/nyu-devclub).
+// Soft delete: deactivated orgs retain all event/media for legal compliance.
+model Organization {
+  id          String             @id @default(uuid())
+  ownerId     String
+  name        String
+  slug        String             @unique
+  description String?
+  logoUrl     String?
+  website     String?
+  status      OrganizationStatus @default(PENDING_VERIFICATION)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  deletedAt   DateTime?
+
+  owner  User    @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  events Event[]
+
+  // Future: ApiKey table for programmatic upload access
+  // ApiKey { organizationId, keyHash, label, lastUsedAt, expiresAt, revokedAt }
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([slug])
+  @@index([deletedAt])
+  @@map("organizations")
+}
+
+// ============================================================
+// EVENT — Primary media container
+// ============================================================
+// updatedByUserId: tracks which org user last modified the event.
+// This is important for audit — an admin may edit an event created by an org owner.
+// startDate/endDate supports multi-day events.
+// bannerImageUrl: CDN URL for the event hero; stored outside MediaAssets.
+// Soft delete: archived events → deletedAt != null.
+model Event {
+  id              String          @id @default(uuid())
+  organizationId  String
+  createdByUserId String
+  updatedByUserId String?         // nullable: null on creation, populated on first edit
+  title           String
+  description     String?
+  location        String?
+  bannerImageUrl  String?
+  startDate       DateTime
+  endDate         DateTime?       // nullable for single-day events
+  status          EventStatus     @default(DRAFT)
+  visibility      EventVisibility @default(PRIVATE)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("EventCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedBy    User?        @relation("EventUpdater", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  mediaAssets  MediaAsset[]
+
+  // Future: EventAnalytics { eventId, views, downloads, totalMatches, avgProcessingMs }
+
+  @@index([organizationId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([visibility])
+  @@index([startDate])
+  @@index([deletedAt])
+  @@map("events")
+}
+
+// ============================================================
+// MEDIA ASSET — A single uploaded file (photo or certificate)
+// ============================================================
+// storageKey: provider-agnostic object storage path (replaces s3Key).
+// thumbnailKey: pre-generated 360px thumbnail for gallery rendering.
+//
+// AI Pipeline Metadata:
+//   workerId: ID of the Celery worker that processed this asset (debugging).
+//   processingStartedAt / processingCompletedAt: wall-clock times for SLA monitoring.
+//   retryCount: how many times the pipeline has been retried; used to gate
+//               further retries and alert on stuck assets.
+//   processingError: last error message from the pipeline.
+//
+// Future: Replace processingStatus with a ProcessingJob model to support
+// multiple independent AI pipelines per asset (face recognition, OCR,
+// thumbnail generation, NSFW filtering) each with their own status.
+//
+//   ProcessingJob { mediaAssetId, pipeline: FACE|OCR|THUMBNAIL, status, workerId, ... }
+//
+// isCurrent / version: future media versioning — if an org replaces a file,
+// old version is retained with isCurrent=false for audit.
+model MediaAsset {
+  id                    String          @id @default(uuid())
+  eventId               String
+  uploadedByUserId      String
+  type                  MediaType
+  originalFilename      String
+  storageKey            String          @unique
+  thumbnailKey          String?
+  mimeType              String
+  fileSizeBytes         BigInt
+  uploadStatus          UploadStatus    @default(PENDING)
+  processingStatus      ProcessingStatus @default(QUEUED)
+  processingError       String?
+  workerId              String?         // Celery worker ID
+  processingStartedAt   DateTime?
+  processingCompletedAt DateTime?
+  retryCount            Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  deletedAt             DateTime?
+
+  event      Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy User   @relation("AssetUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  photoTags       PhotoTag[]
+  certificateTags CertificateTag[]
+
+  @@index([eventId])
+  @@index([uploadedByUserId])
+  @@index([processingStatus])
+  @@index([uploadStatus])
+  @@index([type])
+  @@index([retryCount])
+  @@index([deletedAt])
+  @@map("media_assets")
+}
+
+// ============================================================
+// PHOTO TAG — AI or manual link between a photo and a student
+// ============================================================
+// No soft delete — tags are immutable audit records. Incorrect matches
+// are REJECTED, not deleted.
+// reviewedByUserId / reviewedAt: track human review actions for the admin audit trail.
+// Composite unique index prevents a student from being tagged twice per photo.
+model PhotoTag {
+  id               String    @id @default(uuid())
+  mediaAssetId     String
+  studentProfileId String
+  confidenceScore  Float     // 0.0–1.0; cosine similarity from Qdrant
+  matchType        MatchType @default(AUTO)
+  status           TagStatus @default(PENDING)
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  mediaAsset      MediaAsset     @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  studentProfile  StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  reviewedBy      User?          @relation("PhotoTagReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([mediaAssetId, studentProfileId])
+  @@index([studentProfileId])
+  @@index([status])
+  @@index([matchType])
+  @@index([confidenceScore])
+  @@index([reviewedByUserId])
+  @@map("photo_tags")
+}
+
+// ============================================================
+// CERTIFICATE TAG — OCR/NLP link between a certificate and a student
+// ============================================================
+// Intentionally separate from PhotoTag — the AI pipeline is entirely
+// different (OCR + NLP vs face recognition) and the two will diverge.
+// rawOcrText: full OCR output retained for debugging and pipeline reprocessing.
+model CertificateTag {
+  id               String    @id @default(uuid())
+  mediaAssetId     String
+  studentProfileId String
+  extractedName    String
+  rawOcrText       String?
+  confidenceScore  Float     // 0.0–1.0; RapidFuzz / Jaro-Winkler score
+  matchType        MatchType @default(AUTO)
+  status           TagStatus @default(PENDING)
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  mediaAsset     MediaAsset     @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  studentProfile StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  reviewedBy     User?          @relation("CertTagReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([mediaAssetId, studentProfileId])
+  @@index([studentProfileId])
+  @@index([status])
+  @@index([matchType])
+  @@index([confidenceScore])
+  @@index([reviewedByUserId])
+  @@map("certificate_tags")
+}
+
+// ============================================================
+// AUDIT LOG — Immutable system event record
+// ============================================================
+// Append-only. Records are never updated or deleted.
+// actorId nullable: null = system action or log for a deleted user.
+// metadata: structured JSON payload (e.g. { from: "PENDING", to: "CONFIRMED" }).
+// Future: Notification model
+//   Notification { userId, title, body, type, readAt, createdAt }
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String   // e.g. "OVERRIDE_MATCH", "DELETE_PROFILE"
+  entityType String   // e.g. "PhotoTag", "MediaAsset", "User"
+  entityId   String
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

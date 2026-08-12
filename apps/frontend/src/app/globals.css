@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@theme {
+  /* === Picaxe Core Palette === */
+  --color-basalt: #15140F;
+  --color-basalt-50: #1c1b15;
+  --color-surface: #211F19;
+  --color-surface-50: #2a2820;
+  --color-surface-border: rgba(148, 140, 122, 0.12);
+  --color-bone: #F1ECE0;
+  --color-bone-muted: #C8C0AD;
+  --color-ash: #948C7A;
+  --color-ash-50: rgba(148, 140, 122, 0.5);
+  --color-seam-gold: #E3A542;
+  --color-seam-gold-muted: rgba(227, 165, 66, 0.15);
+  --color-verdigris: #4E9C82;
+  --color-verdigris-muted: rgba(78, 156, 130, 0.12);
+  --color-danger: #E05C5C;
+  --color-danger-muted: rgba(224, 92, 92, 0.12);
+
+  /* === Typography === */
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-ibm-plex-mono);
+
+  /* === Radius === */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* === Shadows === */
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-overlay: 0 20px 60px rgba(0,0,0,0.5);
+  --shadow-gold: 0 0 30px -8px rgba(227, 165, 66, 0.3);
+  --shadow-verdigris: 0 0 20px -5px rgba(78, 156, 130, 0.4);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-basalt text-bone font-sans;
+    min-height: 100dvh;
+  }
+
+  /* Focus ring — seam-gold, 2px, visible on every interactive element */
+  :focus-visible {
+    outline: 2px solid theme(colors.seam-gold);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Hide scrollbar but keep scroll */
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@layer utilities {
+  /* === Brand grid — Picaxe identity layer === */
+  .picaxe-grid-bg {
+    background-image:
+      linear-gradient(rgba(148, 140, 122, 0.04) 1px, transparent 1px),
+      linear-gradient(to right, rgba(148, 140, 122, 0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* Radial mask to fade the grid at edges */
+  .picaxe-grid-mask {
+    mask-image: radial-gradient(ellipse 80% 50% at 50% 50%, black 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 50% at 50% 50%, black 30%, transparent 100%);
+  }
+
+  /* Scan-line motion — the brand identity mark */
+  .scan-line {
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(78, 156, 130, 0.08) 45%,
+      rgba(78, 156, 130, 0.2) 50%,
+      rgba(78, 156, 130, 0.08) 55%,
+      transparent 100%
+    );
+  }
+
+  /* Glow halos */
+  .glow-gold   { box-shadow: 0 0 30px -8px rgba(227, 165, 66, 0.35); }
+  .glow-green  { box-shadow: 0 0 20px -5px rgba(78, 156, 130, 0.4); }
+
+  /* Surface card baseline */
+  .card {
+    @apply bg-surface border border-surface-border rounded-lg;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Inset input baseline */
+  .input-base {
+    @apply bg-basalt-50 border border-surface-border rounded-md px-3 py-2
+           text-sm text-bone font-sans placeholder-ash/40
+           focus:outline-none focus:border-seam-gold/50 transition-colors;
+  }
+}
+
+/* === Animations === */
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
+}
+
+@keyframes pulse-ring {
+  0%   { opacity: 0.8; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+
+@keyframes scan {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@layer utilities {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(148,140,122,0.05) 25%,
+      rgba(148,140,122,0.12) 50%,
+      rgba(148,140,122,0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+  }
+}
