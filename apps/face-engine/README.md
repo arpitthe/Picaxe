@@ -195,3 +195,15 @@ python -m unittest discover -s tests
 python -m scripts.experiment_similarity
 ```
 Outputs report to console and generates `scripts/evaluation_results.json`.
+
+### Running CALFW Benchmark Evaluation
+Run the dedicated CALFW evaluation pipeline to benchmark Face Engine verification accuracy. This requires the dataset to be locally downloaded.
+```bash
+python -m scripts.evaluate_calfw --dataset-root "C:\Users\Acer\Downloads\calfw\calfw" --max-pairs 100
+```
+Optional arguments:
+- `--max-pairs N`: Evaluate only the first N verification pairs.
+- `--cache-dir`: Path to store/load embedding cache (e.g., `scripts/evaluation/cache`).
+- `--force-recompute`: Ignore existing cache and recompute embeddings.
+
+Outputs will be generated in `scripts/evaluation/`, including a JSON summary, a CSV of metrics per threshold, a score distribution plot, and a markdown report.

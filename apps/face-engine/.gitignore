@@ -1,0 +1,6 @@
+# CALFW Evaluation Artifacts and Cache
+scripts/evaluation/calfw_results.json
+scripts/evaluation/calfw_thresholds.csv
+scripts/evaluation/calfw_score_distribution.png
+scripts/evaluation/calfw_report.md
+scripts/evaluation/cache/

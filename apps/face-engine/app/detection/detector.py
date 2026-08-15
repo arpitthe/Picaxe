@@ -31,8 +31,22 @@ def _get_insightface_app() -> Any:
     """
     global _app_instance
     if _app_instance is None:
+        # --- ONNX Runtime CUDA/cuDNN DLL preload ---
+        # Must happen before any ONNX session (including InsightFace) is created,
+        # otherwise the CUDAExecutionProvider may silently fall back to CPU.
+        try:
+            import onnxruntime as _ort
+            logger.info("Attempting ONNX Runtime CUDA/cuDNN DLL preload (onnxruntime.preload_dlls)...")
+            _ort.preload_dlls(directory="")
+            logger.info("ONNX Runtime CUDA/cuDNN DLL preload succeeded.")
+        except Exception as _ort_exc:
+            logger.warning(
+                f"ONNX Runtime CUDA/cuDNN DLL preload failed — CUDA provider may be unavailable, "
+                f"falling back to CPU. Reason: {_ort_exc}"
+            )
+
         import insightface
-        
+
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if settings.INSIGHTFACE_CTX_ID >= 0 else ["CPUExecutionProvider"]
         logger.info(f"Initializing InsightFace model pack '{settings.INSIGHTFACE_MODEL}' with providers={providers}...")
         

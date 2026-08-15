@@ -19,7 +19,7 @@ class Settings:
 
     # InsightFace Model Configuration
     INSIGHTFACE_MODEL: str = os.getenv("INSIGHTFACE_MODEL", "buffalo_l")
-    INSIGHTFACE_CTX_ID: int = int(os.getenv("INSIGHTFACE_CTX_ID", "-1"))  # -1 = CPU, 0+ = CUDA GPU
+    INSIGHTFACE_CTX_ID: int = int(os.getenv("INSIGHTFACE_CTX_ID", "0"))  # -1 = CPU, 0+ = CUDA GPU
     
     # Model Metadata (Verified empirically from InsightFace buffalo_l pack)
     DETECTOR_MODEL_NAME: str = "SCRFD (det_10g.onnx)"
