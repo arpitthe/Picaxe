@@ -1,6 +1,7 @@
 import base64
 import os
 import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
@@ -53,22 +54,40 @@ def decode_base64_image(image_base64: str) -> bytes:
         ) from exc
 
 
-def run_ocr(image_base64: str):
+def get_image_suffix(filename: str | None) -> str:
+    """
+    Determine a supported image suffix from the supplied filename.
+
+    Falls back to .png when the filename is missing or unsupported.
+    """
+
+    suffix = Path(filename or "").suffix.lower()
+
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        suffix = ".png"
+
+    return suffix
+
+
+def run_ocr(
+    image_base64: str,
+    filename: str | None = None,
+):
     """
     Decode the supplied image, save it temporarily,
     and run PaddleOCR.
     """
 
     image_bytes = decode_base64_image(image_base64)
+    suffix = get_image_suffix(filename)
 
     temp_path = None
 
     try:
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=".png",
+            suffix=suffix,
         ) as temp_file:
-
             temp_file.write(image_bytes)
             temp_path = temp_file.name
 
@@ -103,8 +122,14 @@ def calculate_ocr_confidence(detections):
     response_model=OcrResponse,
 )
 def ocr_certificate(req: CertificateOcrRequest):
+    """
+    Run OCR on a certificate image.
+    """
 
-    detections = run_ocr(req.image_base64)
+    detections = run_ocr(
+        req.image_base64,
+        req.filename,
+    )
 
     raw_text = build_raw_text(detections)
 
@@ -123,11 +148,36 @@ def ocr_certificate(req: CertificateOcrRequest):
     response_model=NameExtractionResponse,
 )
 def extract_name(req: ExtractNameRequest):
+    """
+    Extract the certificate recipient from plain OCR text.
 
-    # This endpoint receives plain OCR text rather than
-    # positional OCR detections. spaCy is therefore used
-    # as the fallback name extraction mechanism.
+    Recipient-context extraction is preferred. spaCy PERSON
+    detection is used only as a fallback when no recipient
+    anchor can be identified.
+    """
 
+    candidates = (
+        candidate_pipeline.name_extractor
+        .extract_candidates_from_text(req.raw_text)
+    )
+
+    if candidates:
+        candidate = candidates[0]
+
+        scored = candidate_pipeline.scorer.score_candidate(
+            candidate=candidate["name"],
+            ocr_confidence=0.0,
+            recipient_context=True,
+            is_person=False,
+        )
+
+        return NameExtractionResponse(
+            extracted_name=candidate["name"],
+            confidence=scored["score"],
+        )
+
+    # Fallback when the OCR text does not contain recognizable
+    # recipient context.
     persons = candidate_pipeline.ner.extract_persons(
         req.raw_text
     )
@@ -142,7 +192,7 @@ def extract_name(req: ExtractNameRequest):
 
     return NameExtractionResponse(
         extracted_name=extracted_name,
-        confidence=0.5,
+        confidence=0.2,
     )
 
 
@@ -153,8 +203,17 @@ def extract_name(req: ExtractNameRequest):
 def analyze_certificate(
     req: CertificateAnalyzeRequest,
 ):
+    """
+    Full certificate pipeline:
 
-    detections = run_ocr(req.image_base64)
+    OCR → recipient extraction → candidate scoring
+    → fuzzy matching against target_name.
+    """
+
+    detections = run_ocr(
+        req.image_base64,
+        req.filename,
+    )
 
     raw_text = build_raw_text(detections)
 
@@ -167,7 +226,6 @@ def analyze_certificate(
     match_score = None
 
     if extracted_name and req.target_name:
-
         participant = {
             "id": "target",
             "name": req.target_name,

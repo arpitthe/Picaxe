@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from typing import Optional
+
+from pydantic import BaseModel
 
 
 class CertificateOcrRequest(BaseModel):
@@ -13,4 +14,5 @@ class ExtractNameRequest(BaseModel):
 
 class CertificateAnalyzeRequest(BaseModel):
     image_base64: str
+    filename: Optional[str] = None
     target_name: Optional[str] = None
